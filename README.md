@@ -23,16 +23,26 @@ Role Variables
 
 ```
 data_disks:
-  - path: /opt/standard_example
-    devices: ['/dev/sdc']        # Only list single device for 'standard' disks
+  - devices: ['/dev/sdc']        # Only list single device for 'standard' disks
     type: standard               # Defaults to 'standard' if left undefined
-    fs_type: xfs
-    fs_options:                  # Optional
-      - su=512
-      - sw=128
-    mount_options:               # Optional
-      - noatime
-      - nobarrier
+    table_type: gpt
+    size_unit: "%"
+    partitions':
+      - path: /mnt/part1
+        size: 50
+        fs_type: xfs
+        name: PART1
+        fs_options:                  # Optional
+          - su=512
+          - sw=128
+        mount_options:               # Optional
+          - noatime
+          - nobarrier
+      - path: /mnt/part2
+        name: PART2
+        table_type: gpt
+        size: 50
+        fs_type: ext4
   - path: /opt/lvm_example
     devices: ['/dev/sdd', '/dev/sde']
     fs_type: xfs

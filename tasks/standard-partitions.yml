@@ -1,0 +1,80 @@
+- name: Create partition scheme
+  become: true
+  loop: "{{ data_disk.partitions }}"
+  loop_control:
+    loop_var: part
+    extended: yes
+  vars:
+    all_sizes: "{{ ansible_loop.allitems | map(attribute='size') }}"
+#    all_sizes: "{{ ['size'] | map('extract', ansible_loop.allitems) | list | map('int') }}"
+    start_val: "{{ range(ansible_loop.index0) | map('extract', all_sizes) | sum }}"
+    end_val: "{{ range(ansible_loop.index) | map('extract', all_sizes) | sum }}"
+  community.general.parted:
+    device: "{{ data_disk.devices[0] }}"
+    label: "{{ data_disk.table_type }}"
+    unit: "{{ data_disk['size_unit'] }}"
+    name: "{{ part.name }}" 
+    number: "{{ ansible_loop.index }}"
+    part_start: "{{ start_val }}{{ data_disk['size_unit'] }}"
+    part_end: "{{ end_val }}{{ data_disk['size_unit'] }}"
+    resize: yes
+    state: present
+
+- name: Format standard data disks
+  become: true
+  loop: "{{ data_disk.partitions }}"
+  loop_control:
+    loop_var: part
+    extended: yes
+  filesystem:
+    dev: "{{ data_disk.devices[0] }}{{ ansible_loop.index}}"
+    fstype: '{{ part.fs_type }}'
+    opts: '{{ part.fs_options | default(None) }}'
+
+- name: Get UUID of standard disks
+  become: true
+  loop: "{{ data_disk.partitions }}"
+  loop_control:
+    loop_var: part
+    extended: yes
+  command: blkid -s UUID -o value "{{ data_disk.devices[0] }}{{ ansible_loop.index }}"
+  changed_when: false
+  register: data_disks_standard_blkid
+
+- name: Print UUID
+  loop: "{{ data_disk.partitions }}"
+  loop_control:
+    loop_var: part
+    extended: yes
+  vars:
+    msg: |
+      data_disks_standard_blkid = {{ data_disks_standard_blkid }}
+  debug:
+    var: msg
+
+- name: Configure systemd unit files for standard disks
+  become: true
+  loop: "{{ data_disk.partitions | zip(data_disks_standard_blkid.results) | list }}"
+  loop_control:
+    loop_var: parts_and_ids
+    extended: yes
+  when:
+    - ansible_service_mgr == 'systemd'
+  template:
+    dest: "/etc/systemd/system/{{ parts_and_ids.0.path[1:] | replace('/', '-') }}.mount"
+    src: templates/mount-unit.j2
+  register: systemd_mount_config
+
+- name: Enable/start systemd units for standard disks
+  become: true
+  loop: "{{ data_disk.partitions }}"
+  loop_control:
+    loop_var: part
+    extended: yes
+  systemd:
+    name: "{{ part.path[1:] | replace('/', '-') }}.mount"
+    daemon_reload: yes
+    enabled: yes
+    state: started
+  when:
+    - ansible_service_mgr == 'systemd'
